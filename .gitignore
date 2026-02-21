@@ -1,0 +1,59 @@
+# =========================================================
+# Rust (firmware)
+# =========================================================
+
+# Cargo build output
+/target/
+**/target/
+
+# Rustfmt backups
+**/*.rs.bk
+
+# Logs
+*.log
+
+# IDE/editor
+.vscode/
+.idea/
+
+# =========================================================
+# KiCad
+# =========================================================
+
+# Autosave files
+*_autosave-*.kicad_sch
+*_autosave-*.kicad_pcb
+
+# Backups (your repo has hw/tau/tau-backups/)
+*-bak
+*-backup*
+*-backups/
+hw/tau/tau-backups/
+
+# Local/machine-specific files
+*.kicad_prl
+*.kicad_pro.user
+
+# Lock files
+*.lck
+
+# Footprint cache (safe to ignore)
+fp-info-cache
+
+# Generated fabrication / export outputs
+*.gbr
+*.gerber
+*.drl
+*.step
+*.stp
+*.pos
+*.rpt
+*.csv
+*.zip
+
+# =========================================================
+# OS junk
+# =========================================================
+
+.DS_Store
+Thumbs.db
