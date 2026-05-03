@@ -24,7 +24,7 @@
 *_autosave-*.kicad_sch
 *_autosave-*.kicad_pcb
 
-# Backups (your repo has hw/tau/tau-backups/)
+# Backups
 *-bak
 *-backup*
 *-backups/
@@ -50,6 +50,8 @@ fp-info-cache
 *.rpt
 *.csv
 *.zip
+
+hw/*/.history/
 
 # =========================================================
 # OS junk
