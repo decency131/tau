@@ -224,7 +224,7 @@
       "internal_id": "",
       "mfg": "",
       "mpn": "",
-      "sch_revision": "1"
+      "sch_revision": "2"
     },
     "layer_pairs": [],
     "layer_presets": [],
@@ -473,7 +473,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "tau.kicad_pro",
+    "filename": "tau_v2.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -510,7 +510,7 @@
       "gencad": "",
       "idf": "",
       "netlist": "",
-      "plot": "../../../../Documents/tau_grbg/",
+      "plot": "../../../../../Documents/tau_grbg/",
       "pos_files": "",
       "specctra_dsn": "",
       "step": "",
@@ -666,8 +666,8 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "tau.kicad_sch",
-        "name": "tau",
+        "filename": "tau_v2.kicad_sch",
+        "name": "tau_v2",
         "uuid": "9651e894-c8a2-4a17-b74c-75c2e527b626"
       }
     ],
@@ -677,7 +677,7 @@
   "sheets": [
     [
       "9651e894-c8a2-4a17-b74c-75c2e527b626",
-      "tau"
+      "tau_v2"
     ]
   ],
   "text_variables": {},

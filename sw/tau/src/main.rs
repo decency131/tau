@@ -1,86 +1,131 @@
 #![no_std]
 #![no_main]
 
+mod audio;
+mod config;
+mod dsp;
+// mod logic;
+mod midi;
+mod utils;
+
 use cortex_m::peripheral::Peripherals;
-use daisy_embassy::{DaisyBoard, hal, new_daisy_board};
-use defmt::info;
+use daisy_embassy::{
+    hal::{self, bind_interrupts, peripherals, usb},
+    led::UserLed,
+    new_daisy_board,
+};
+use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_futures::join::join;
+use embassy_stm32::interrupt::{InterruptExt, Priority};
+use embassy_stm32::usb::{Config, Driver};
+use embassy_stm32::{gpio::*, interrupt};
+use embassy_time::Timer;
+use embassy_usb::Builder;
+use embassy_usb::class::midi::MidiClass;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-use yin_no_std::Yin;
+use crate::audio::input::{AUDIO_EXECUTOR, audio_task};
+use crate::config::{USB_MANUFACTURER, USB_PID, USB_PRODUCT, USB_SERIAL, USB_VID};
+use crate::dsp::pitch::pitch_task;
+use crate::midi::usb::usb_midi_task;
 
-const SAMPLE_RATE: f32 = 48_000.0;
-const THRESHOLD: f32 = 0.10;
-const MIN_PROBABILITY: f32 = 0.15;
+bind_interrupts!(pub struct UsbIrqs {
+    OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
+});
 
-const FRAME_LEN: usize = 1024;
-const TAU_MAX: usize = 512;
-const ITERATIONS: usize = 1000;
+#[embassy_stm32::interrupt]
+unsafe fn SAI1() {
+    unsafe { AUDIO_EXECUTOR.on_interrupt() }
+}
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    info!("starting yin bench");
-
-    let mut cp = Peripherals::take().unwrap();
-    let config = daisy_embassy::default_rcc();
-
-    cp.SCB.enable_fpu();
-    cp.SCB.enable_icache();
-    cp.SCB.enable_dcache(&mut cp.CPUID);
-
-    let p = hal::init(config);
-    let _board: DaisyBoard<'_> = new_daisy_board!(p);
-
-    let yin = Yin::new(SAMPLE_RATE, THRESHOLD, MIN_PROBABILITY);
-
-    let mut frame = [0.0f32; FRAME_LEN];
-    make_sine(&mut frame, SAMPLE_RATE, 220.0);
-
-    let mut diff = [0.0f32; TAU_MAX + 1];
-    let mut cmnd = [0.0f32; TAU_MAX + 1];
-
-    // warmup
-    for _ in 0..100 {
-        let _ = yin.detect(&frame, TAU_MAX, &mut diff, &mut cmnd);
-    }
-
-    let start = Instant::now();
-
-    let mut found = 0usize;
-    let mut last_hz = 0.0f32;
-    let mut last_prob = 0.0f32;
-
-    for _ in 0..ITERATIONS {
-        if let Some(pitch) = yin.detect(&frame, TAU_MAX, &mut diff, &mut cmnd) {
-            found += 1;
-            last_hz = pitch.frequency_hz;
-            last_prob = pitch.probability;
-        }
-    }
-
-    let elapsed = start.elapsed();
-    let total_us = elapsed.as_micros();
-    let avg_us = total_us / (ITERATIONS as u64);
-
-    info!("iterations = {}", ITERATIONS);
-    info!("total_us = {}", total_us);
-    info!("avg_us = {}", avg_us);
-    info!("detections = {}", found);
-    info!("last_hz = {}", last_hz);
-    info!("last_probability = {}", last_prob);
-
+#[embassy_executor::task]
+async fn blink(mut led: UserLed<'static>) {
     loop {
-        Timer::after(Duration::from_secs(1)).await;
+        led.on();
+        Timer::after_millis(500).await;
+
+        led.off();
+        Timer::after_millis(500).await;
     }
 }
 
-fn make_sine(buf: &mut [f32], sample_rate: f32, freq_hz: f32) {
-    let phase_inc = 2.0 * core::f32::consts::PI * freq_hz / sample_rate;
-    let mut phase = 0.0f32;
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    info!("==== pitch detector start ====");
 
-    for x in buf.iter_mut() {
-        *x = libm::sinf(phase);
-        phase += phase_inc;
-    }
+    let mut cp = Peripherals::take().unwrap();
+    let rcc_config = daisy_embassy::default_rcc();
+
+    cp.SCB.enable_fpu();
+    cp.SCB.enable_icache();
+
+    let p = hal::init(rcc_config);
+    let board = new_daisy_board!(p);
+
+    let ch1_led = Output::new(board.pins.d14, Level::Low, Speed::Medium);
+    let ch2_led = Output::new(board.pins.d13, Level::Low, Speed::Medium);
+    let ch3_led = Output::new(board.pins.d12, Level::Low, Speed::Medium);
+    let ch4_led = Output::new(board.pins.d11, Level::Low, Speed::Medium);
+
+    spawner.spawn(blink(board.user_led)).unwrap();
+    spawner.spawn(pitch_task()).unwrap();
+
+    let interface = board
+        .audio_peripherals
+        .prepare_interface(Default::default())
+        .await;
+
+    interrupt::SAI1.set_priority(Priority::P6);
+    let audio_spawner = AUDIO_EXECUTOR.start(interrupt::SAI1);
+    unwrap!(audio_spawner.spawn(audio_task(interface)));
+
+    let mut usb_config = Config::default();
+    usb_config.vbus_detection = false;
+
+    static EP_OUT_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
+    let ep_out_buffer = EP_OUT_BUFFER.init([0; 256]);
+
+    let driver = Driver::new_fs(
+        p.USB_OTG_HS,
+        UsbIrqs,
+        board.pins.d30,
+        board.pins.d29,
+        ep_out_buffer,
+        usb_config,
+    );
+
+    let mut device_config = embassy_usb::Config::new(USB_VID, USB_PID);
+    device_config.manufacturer = Some(USB_MANUFACTURER);
+    device_config.product = Some(USB_PRODUCT);
+    device_config.serial_number = Some(USB_SERIAL);
+    device_config.device_class = 0xEF;
+    device_config.device_sub_class = 0x02;
+    device_config.device_protocol = 0x01;
+    device_config.composite_with_iads = true;
+
+    static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
+    static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
+    static CONTROL_BUF: StaticCell<[u8; 64]> = StaticCell::new();
+
+    let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
+    let bos_descriptor = BOS_DESCRIPTOR.init([0; 256]);
+    let control_buf = CONTROL_BUF.init([0; 64]);
+
+    let mut builder = Builder::new(
+        driver,
+        device_config,
+        config_descriptor,
+        bos_descriptor,
+        &mut [],
+        control_buf,
+    );
+
+    let mut midi_class = MidiClass::new(&mut builder, 1, 1, 64);
+    let mut usb = builder.build();
+
+    info!("USB MIDI ready; waiting for host");
+
+    join(usb.run(), usb_midi_task(&mut midi_class)).await;
 }

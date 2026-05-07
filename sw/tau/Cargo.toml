@@ -29,6 +29,7 @@ yin_no_std = { git = "https://github.com/decency131/yin-no_std.git" }
 
 
 micromath = "2.0.0"
+static_cell = "2.1.1"
 
 [features]
 seed = []

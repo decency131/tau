@@ -1121,6 +1121,7 @@ dependencies = [
  "midly",
  "panic-probe",
  "ssd1306",
+ "static_cell",
  "yin_no_std",
 ]
 
