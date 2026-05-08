@@ -2,9 +2,9 @@
 #![no_main]
 
 mod audio;
+mod board;
 mod config;
 mod dsp;
-// mod logic;
 mod midi;
 mod utils;
 
@@ -64,13 +64,17 @@ async fn main(spawner: Spawner) {
     let p = hal::init(rcc_config);
     let board = new_daisy_board!(p);
 
-    let ch1_led = Output::new(board.pins.d14, Level::Low, Speed::Medium);
-    let ch2_led = Output::new(board.pins.d13, Level::Low, Speed::Medium);
-    let ch3_led = Output::new(board.pins.d12, Level::Low, Speed::Medium);
-    let ch4_led = Output::new(board.pins.d11, Level::Low, Speed::Medium);
+    let ch_leds = board::ChLeds::new(
+        board.pins.d13,
+        board.pins.d12,
+        board.pins.d11,
+        board.pins.d10,
+    );
+
+    let midi_enable = board::MIDIEnable::new(board.pins.d14);
 
     spawner.spawn(blink(board.user_led)).unwrap();
-    spawner.spawn(pitch_task()).unwrap();
+    spawner.spawn(pitch_task(midi_enable)).unwrap();
 
     let interface = board
         .audio_peripherals
@@ -123,9 +127,10 @@ async fn main(spawner: Spawner) {
     );
 
     let mut midi_class = MidiClass::new(&mut builder, 1, 1, 64);
+    //info!("before usb builder");
     let mut usb = builder.build();
 
     info!("USB MIDI ready; waiting for host");
-
+    //info!("before usb run");
     join(usb.run(), usb_midi_task(&mut midi_class)).await;
 }

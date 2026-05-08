@@ -1,3 +1,5 @@
+use crate::board::MIDIEnable;
+
 use defmt::{debug, info};
 use yin_no_std::Yin;
 
@@ -11,7 +13,7 @@ use crate::midi::usb::{send_note_off, send_note_on};
 use crate::utils::{pitch_hz_to_midi_note, u24_to_f32};
 
 #[embassy_executor::task]
-pub async fn pitch_task() {
+pub async fn pitch_task(midi_enable: MIDIEnable) {
     let yin = Yin::new(SAMPLE_RATE, THRESHOLD, MIN_PROBABILITY);
 
     let mut frame = [0.0f32; FRAME_LEN];
@@ -24,7 +26,23 @@ pub async fn pitch_task() {
     let mut active_note: Option<u8> = None;
     let mut missed_detections = 0u8;
 
+    let mut midi_switch_was_enabled = midi_enable.is_enabled();
+
     loop {
+        let midi_enabled = midi_enable.is_enabled();
+
+        if midi_switch_was_enabled && !midi_enabled {
+            if let Some(note) = active_note.take() {
+                send_note_off(note);
+                info!("midi note_off={} reason=midi_disabled", note);
+            }
+            missed_detections = 0;
+        } else if !midi_switch_was_enabled && midi_enabled {
+            info!("midi enabled");
+        }
+
+        midi_switch_was_enabled = midi_enabled;
+
         let raw_frame = FRAME_CH.receive().await;
         analyzed_frames = analyzed_frames.wrapping_add(1);
 
@@ -70,8 +88,8 @@ pub async fn pitch_task() {
 
         if analyzed_frames % 32 == 1 {
             debug!(
-                "input_debug frame={} raw_min={} raw_max={} mean={} rms={} peak={}",
-                analyzed_frames, raw_min, raw_max, mean, rms, peak
+                "input_debug frame={} raw_min={} raw_max={} mean={} rms={} peak={} midi_en={}",
+                analyzed_frames, raw_min, raw_max, mean, rms, peak, midi_enabled
             );
         }
 
@@ -92,7 +110,7 @@ pub async fn pitch_task() {
             continue;
         }
 
-        if analyzed_frames % DETECT_EVERY_N_FRAMES == 0 {
+        if (analyzed_frames % DETECT_EVERY_N_FRAMES == 0) && midi_enabled {
             let detected_note = match yin.detect(&frame, TAU_MAX, &mut diff, &mut cmnd) {
                 Some(pitch) => {
                     last_pitch_hz = pitch.frequency_hz;
