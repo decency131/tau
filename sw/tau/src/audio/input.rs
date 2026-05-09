@@ -4,7 +4,7 @@ use embassy_executor::InterruptExecutor;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
 use crate::config::{
-    DETECT_EVERY_N_FRAMES, FRAME_LEN, INPUT_OFFSET, INPUT_STRIDE, MIN_PEAK, MIN_RMS,
+    DETECT_EVERY_N_FRAMES, FRAME_LEN, HOP_LEN, INPUT_OFFSET, INPUT_STRIDE, MIN_PEAK, MIN_RMS,
     PRINT_EVERY_N_FRAMES, TAU_MAX,
 };
 
@@ -59,8 +59,6 @@ pub async fn audio_task(interface: Interface<'static, Idle>) {
                         frame_i += 1;
 
                         if frame_i == FRAME_LEN {
-                            frame_i = 0;
-
                             match FRAME_CH.try_send(raw_frame) {
                                 Ok(()) => {}
                                 Err(_) => {
@@ -71,7 +69,11 @@ pub async fn audio_task(interface: Interface<'static, Idle>) {
                                 }
                             }
 
-                            raw_frame = [0u32; FRAME_LEN];
+                            // Overlapping frame:
+                            // keep the last FRAME_LEN - HOP_LEN samples,
+                            // then continue filling from there.
+                            raw_frame.copy_within(HOP_LEN..FRAME_LEN, 0);
+                            frame_i = FRAME_LEN - HOP_LEN;
                         }
                     }
 

@@ -1,15 +1,17 @@
 // Audio / DSP
 pub const SAMPLE_RATE: f32 = 48_000.0;
-pub const FRAME_LEN: usize = 1000;
+pub const FRAME_LEN: usize = 512;
+
+pub const HOP_LEN: usize = 256;
 
 // YIN
 pub const THRESHOLD: f32 = 0.20;
 pub const MIN_PROBABILITY: f32 = 0.05;
-pub const TAU_MAX: usize = 800;
+pub const TAU_MAX: usize = 400;
 
 // Throttling
-pub const DETECT_EVERY_N_FRAMES: u32 = 6;
-pub const PRINT_EVERY_N_FRAMES: u32 = 4;
+pub const DETECT_EVERY_N_FRAMES: u32 = 2;
+pub const PRINT_EVERY_N_FRAMES: u32 = 20;
 pub const SILENCE_PRINT_EVERY_N_FRAMES: u32 = 32;
 
 // Input channel selection

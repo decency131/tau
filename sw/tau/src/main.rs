@@ -17,6 +17,7 @@ use daisy_embassy::{
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_stm32::adc::Adc;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::usb::{Config, Driver};
 use embassy_stm32::{gpio::*, interrupt};
@@ -84,6 +85,8 @@ async fn main(spawner: Spawner) {
     interrupt::SAI1.set_priority(Priority::P6);
     let audio_spawner = AUDIO_EXECUTOR.start(interrupt::SAI1);
     unwrap!(audio_spawner.spawn(audio_task(interface)));
+
+    interrupt::OTG_HS.set_priority(Priority::P5);
 
     let mut usb_config = Config::default();
     usb_config.vbus_detection = false;

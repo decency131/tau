@@ -12,6 +12,15 @@ pub struct MIDIEnable {
     midi_enable: Input<'static>,
 }
 
+pub struct AUX1 {
+    sw1: Input<'static>,
+    sw2: Input<'static>,
+}
+
+pub struct AUX2 {
+    pin_adc: Input<'static>,
+}
+
 impl ChLeds {
     pub fn new(
         ch1: impl Peripheral<P = impl Pin> + 'static,
