@@ -1,5 +1,8 @@
+use daisy_embassy::pins::*;
 use embassy_stm32::Peripheral;
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
+use embassy_stm32::peripherals::ADC1;
 
 pub struct ChLeds {
     ch1_led: Output<'static>,
@@ -17,8 +20,25 @@ pub struct AUX1 {
     sw2: Input<'static>,
 }
 
-pub struct AUX2 {
-    pin_adc: Input<'static>,
+pub struct AUX2<PIN> {
+    pin_adc: PIN,
+}
+
+impl<PIN> AUX2<PIN>
+where
+    PIN: AdcChannel<ADC1>,
+{
+    pub fn new(pin_adc: PIN) -> Self {
+        Self { pin_adc }
+    }
+
+    pub fn read_raw(&mut self, adc: &mut Adc<'static, ADC1>) -> u16 {
+        adc.blocking_read(&mut self.pin_adc)
+    }
+
+    pub fn read_f32(&mut self, adc: &mut Adc<'static, ADC1>) -> f32 {
+        self.read_raw(adc) as f32 / 65535.0
+    }
 }
 
 impl ChLeds {
