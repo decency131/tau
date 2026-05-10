@@ -38,7 +38,7 @@ async fn midi_event_loop<'d, T: Instance + 'd>(
 ) -> Result<(), Disconnected> {
     loop {
         let event = MIDI_CH.receive().await;
-        let packet = event.to_usb_packet();
+        let packet = event.to_usb_packet().await;
         class.write_packet(&packet).await?;
     }
 }

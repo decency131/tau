@@ -24,7 +24,6 @@ pub const MIN_RMS_SQUARED: f32 = MIN_RMS * MIN_RMS;
 pub const MIN_PEAK: f32 = 0.012;
 
 // MIDI
-pub const MIDI_CHANNEL: u8 = 0;
 pub const MIDI_VELOCITY: u8 = 100;
 pub const MIDI_MIN_NOTE: u8 = 24;
 pub const MIDI_MAX_NOTE: u8 = 96;

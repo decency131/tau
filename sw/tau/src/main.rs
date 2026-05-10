@@ -19,8 +19,10 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::adc::Adc;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
+use embassy_stm32::rcc::mux::Adcsel;
 use embassy_stm32::usb::{Config, Driver};
 use embassy_stm32::{gpio::*, interrupt};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::Timer;
 use embassy_usb::Builder;
 use embassy_usb::class::midi::MidiClass;
@@ -31,6 +33,8 @@ use crate::audio::input::{AUDIO_EXECUTOR, audio_task};
 use crate::config::{USB_MANUFACTURER, USB_PID, USB_PRODUCT, USB_SERIAL, USB_VID};
 use crate::dsp::pitch::pitch_task;
 use crate::midi::usb::usb_midi_task;
+
+static STATE: Mutex<CriticalSectionRawMutex, board::State> = Mutex::new(board::State::new());
 
 bind_interrupts!(pub struct UsbIrqs {
     OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
@@ -57,7 +61,9 @@ async fn main(spawner: Spawner) {
     info!("==== pitch detector start ====");
 
     let mut cp = Peripherals::take().unwrap();
-    let rcc_config = daisy_embassy::default_rcc();
+    let mut rcc_config = daisy_embassy::default_rcc();
+
+    rcc_config.rcc.mux.adcsel = hal::pac::rcc::vals::Adcsel::PLL3_R;
 
     cp.SCB.enable_fpu();
     cp.SCB.enable_icache();
@@ -65,16 +71,26 @@ async fn main(spawner: Spawner) {
     let p = hal::init(rcc_config);
     let board = new_daisy_board!(p);
 
-    let ch_leds = board::ChLeds::new(
-        board.pins.d13,
-        board.pins.d12,
-        board.pins.d11,
+    let mut ch_leds = board::ChLeds::new(
         board.pins.d10,
+        board.pins.d11,
+        board.pins.d12,
+        board.pins.d13,
     );
 
     let midi_enable = board::MIDIEnable::new(board.pins.d14);
 
+    let mut adc = Adc::new(p.ADC1);
+    let mut exp = board::AUX2::new(board.pins.d15);
+
+    let mut switches = board::AUX1::new(board.pins.d20, board.pins.d21);
+    let channel = {
+        let mut state = STATE.lock().await;
+        state.channel()
+    };
     spawner.spawn(blink(board.user_led)).unwrap();
+    spawner.spawn(board::aux_task(switches, ch_leds)).unwrap();
+
     spawner.spawn(pitch_task(midi_enable)).unwrap();
 
     let interface = board
