@@ -1,4 +1,5 @@
 use crate::STATE;
+use crate::midi::looper::{LooperControl, queue_looper_control};
 
 use daisy_embassy::pins::*;
 use defmt::info;
@@ -6,7 +7,7 @@ use embassy_stm32::Peripheral;
 use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::ADC1;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 
 #[derive(Clone, Copy)]
 pub enum SwitchEvent {
@@ -49,7 +50,7 @@ impl State {
     }
 
     pub fn prev_channel(&mut self) {
-        self.midi_channel = (self.midi_channel - 1) % 4;
+        self.midi_channel = (self.midi_channel + 3) % 4;
     }
 
     pub fn next_channel(&mut self) {
@@ -186,34 +187,55 @@ impl MIDIEnable {
 
 #[embassy_executor::task]
 pub async fn aux_task(mut aux1: AUX1, mut leds: ChLeds) {
+    let _ = &mut leds;
+
+    let mut sw2_pressed_at: Option<Instant> = None;
+    let mut debug_counter = 0u32;
+
     loop {
+        debug_counter += 1;
+
+        if debug_counter >= 50 {
+            debug_counter = 0;
+            info!(
+                "raw switches: sw1={} sw2={}",
+                aux1.sw1_pressed(),
+                aux1.sw2_pressed()
+            );
+        }
+
         if let Some(event) = aux1.poll_event() {
             match event {
                 SwitchEvent::Sw1Pressed => {
                     info!("sw1 pressed");
                 }
+
                 SwitchEvent::Sw1Released => {
                     info!("sw1 released");
-                    let channel = {
-                        let mut state = STATE.lock().await;
-                        state.prev_channel();
-                        state.channel()
-                    };
-
-                    leds.set_channel(channel);
+                    queue_looper_control(LooperControl::Sw1);
                 }
+
                 SwitchEvent::Sw2Pressed => {
                     info!("sw2 pressed");
+                    sw2_pressed_at = Some(Instant::now());
                 }
+
                 SwitchEvent::Sw2Released => {
                     info!("sw2 released");
-                    let channel = {
-                        let mut state = STATE.lock().await;
-                        state.next_channel();
-                        state.channel()
-                    };
 
-                    leds.set_channel(channel);
+                    let held_ms = sw2_pressed_at
+                        .map(|t| Instant::now().duration_since(t).as_millis())
+                        .unwrap_or(0);
+
+                    sw2_pressed_at = None;
+
+                    info!("sw2 held_ms={}", held_ms);
+
+                    if held_ms >= 1000 {
+                        queue_looper_control(LooperControl::Clear);
+                    } else {
+                        queue_looper_control(LooperControl::PauseResume);
+                    }
                 }
             }
         }

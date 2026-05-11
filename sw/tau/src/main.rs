@@ -32,6 +32,7 @@ use {defmt_rtt as _, panic_probe as _};
 use crate::audio::input::{AUDIO_EXECUTOR, audio_task};
 use crate::config::{USB_MANUFACTURER, USB_PID, USB_PRODUCT, USB_SERIAL, USB_VID};
 use crate::dsp::pitch::pitch_task;
+use crate::midi::looper::looper_task;
 use crate::midi::usb::usb_midi_task;
 
 static STATE: Mutex<CriticalSectionRawMutex, board::State> = Mutex::new(board::State::new());
@@ -72,10 +73,10 @@ async fn main(spawner: Spawner) {
     let board = new_daisy_board!(p);
 
     let mut ch_leds = board::ChLeds::new(
-        board.pins.d10,
-        board.pins.d11,
-        board.pins.d12,
         board.pins.d13,
+        board.pins.d12,
+        board.pins.d11,
+        board.pins.d10,
     );
 
     let midi_enable = board::MIDIEnable::new(board.pins.d14);
@@ -90,6 +91,7 @@ async fn main(spawner: Spawner) {
     };
     spawner.spawn(blink(board.user_led)).unwrap();
     spawner.spawn(board::aux_task(switches, ch_leds)).unwrap();
+    spawner.spawn(looper_task()).unwrap();
 
     spawner.spawn(pitch_task(midi_enable)).unwrap();
 

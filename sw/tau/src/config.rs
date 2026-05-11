@@ -35,3 +35,6 @@ pub const USB_PID: u16 = 0xc0de;
 pub const USB_MANUFACTURER: &str = "decency131";
 pub const USB_PRODUCT: &str = "tau";
 pub const USB_SERIAL: &str = "12345678";
+
+// Looper
+pub const MAX_EVENTS: usize = 2048;
