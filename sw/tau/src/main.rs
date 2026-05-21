@@ -3,6 +3,7 @@
 
 mod audio;
 mod board;
+mod colours;
 mod config;
 mod dsp;
 mod midi;
@@ -82,15 +83,32 @@ async fn main(spawner: Spawner) {
     let midi_enable = board::MIDIEnable::new(board.pins.d14);
 
     let mut adc = Adc::new(p.ADC1);
-    let mut exp = board::AUX2::new(board.pins.d15);
 
-    let mut switches = board::AUX1::new(board.pins.d20, board.pins.d21);
+    let mut aux = board::AUX::new(
+        board.pins.d17,
+        board.pins.d18,
+        board.pins.d15,
+        board.pins.d27,
+        board.pins.d20,
+        board.pins.d19,
+        board.pins.d16,
+        board.pins.d28,
+    );
+
+    let mut setup = board::Setup::new(
+        board.pins.d23,
+        board.pins.d24,
+        board.pins.d26,
+        board.pins.d21,
+    );
+
     let channel = {
         let mut state = STATE.lock().await;
         state.channel()
     };
     spawner.spawn(blink(board.user_led)).unwrap();
-    spawner.spawn(board::aux_task(switches, ch_leds)).unwrap();
+    spawner.spawn(board::aux_task(aux, adc, ch_leds)).unwrap();
+    spawner.spawn(board::setup_task(setup)).unwrap();
     spawner.spawn(looper_task()).unwrap();
 
     spawner.spawn(pitch_task(midi_enable)).unwrap();
