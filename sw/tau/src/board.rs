@@ -1,4 +1,5 @@
 use crate::STATE;
+use crate::config;
 use crate::midi::looper::{LooperControl, queue_looper_control};
 
 use daisy_embassy::pins::*;
@@ -8,6 +9,22 @@ use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::ADC1;
 use embassy_time::{Instant, Timer};
+
+fn expression_raw_to_channel(raw: u16, current_channel: usize) -> usize {
+    let raw = raw as u32;
+    let current = current_channel.min(config::EXP_CHANNELS - 1);
+
+    let lower = current as u32 * config::EXP_ZONE_WIDTH;
+    let upper = (current as u32 + 1) * config::EXP_ZONE_WIDTH;
+
+    if current < config::EXP_CHANNELS - 1 && raw >= upper + config::EXP_HYSTERESIS {
+        (raw / config::EXP_ZONE_WIDTH).min((config::EXP_CHANNELS - 1) as u32) as usize
+    } else if current > 0 && raw + config::EXP_HYSTERESIS < lower {
+        (raw / config::EXP_ZONE_WIDTH).min((config::EXP_CHANNELS - 1) as u32) as usize
+    } else {
+        current
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum SwitchEvent {
@@ -57,7 +74,11 @@ impl State {
         self.midi_channel = (self.midi_channel + 1) % 4;
     }
 
-    pub fn channel(&mut self) -> usize {
+    pub fn set_channel(&mut self, channel: usize) {
+        self.midi_channel = channel % 4;
+    }
+
+    pub fn channel(&self) -> usize {
         self.midi_channel
     }
 }
@@ -185,25 +206,20 @@ impl MIDIEnable {
     }
 }
 
-#[embassy_executor::task]
-pub async fn aux_task(mut aux1: AUX1, mut leds: ChLeds) {
-    let _ = &mut leds;
+pub type AppExpression = AUX2<SeedPin15>;
 
+#[embassy_executor::task]
+pub async fn aux_task(
+    mut aux1: AUX1,
+    mut exp: AppExpression,
+    mut adc: Adc<'static, ADC1>,
+    mut leds: ChLeds,
+) {
     let mut sw2_pressed_at: Option<Instant> = None;
-    let mut debug_counter = 0u32;
+    let mut last_displayed_channel: Option<usize> = None;
 
     loop {
-        debug_counter += 1;
-
-        if debug_counter >= 50 {
-            debug_counter = 0;
-            info!(
-                "raw switches: sw1={} sw2={}",
-                aux1.sw1_pressed(),
-                aux1.sw2_pressed()
-            );
-        }
-
+        // AUX1 footswitches -> looper control.
         if let Some(event) = aux1.poll_event() {
             match event {
                 SwitchEvent::Sw1Pressed => {
@@ -238,6 +254,28 @@ pub async fn aux_task(mut aux1: AUX1, mut leds: ChLeds) {
                     }
                 }
             }
+        }
+
+        // AUX2 expression pedal -> MIDI channel select.
+        let raw = exp.read_raw(&mut adc);
+
+        let channel = {
+            let mut state = STATE.lock().await;
+
+            let current_channel = state.channel();
+            let new_channel = expression_raw_to_channel(raw, current_channel);
+
+            if new_channel != current_channel {
+                state.set_channel(new_channel);
+                info!("expression channel raw={} channel={}", raw, new_channel + 1);
+            }
+
+            state.channel()
+        };
+
+        if last_displayed_channel != Some(channel) {
+            leds.set_channel(channel);
+            last_displayed_channel = Some(channel);
         }
 
         Timer::after_millis(10).await;

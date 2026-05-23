@@ -21,12 +21,12 @@ pub fn send_usb_event(event: MidiEvent) {
     }
 }
 
-pub fn send_note_on(note: u8) {
-    queue_midi_event(MidiEvent::NoteOn(note));
+pub fn send_note_on(channel: usize, note: u8) {
+    queue_midi_event(MidiEvent::note_on(channel, note));
 }
 
-pub fn send_note_off(note: u8) {
-    queue_midi_event(MidiEvent::NoteOff(note));
+pub fn send_note_off(channel: usize, note: u8) {
+    queue_midi_event(MidiEvent::note_off(channel, note));
 }
 
 pub struct Disconnected {}
@@ -45,7 +45,7 @@ async fn midi_event_loop<'d, T: Instance + 'd>(
 ) -> Result<(), Disconnected> {
     loop {
         let event = MIDI_OUT_CH.receive().await;
-        let packet = event.to_usb_packet().await;
+        let packet = event.to_usb_packet();
         class.write_packet(&packet).await?;
     }
 }

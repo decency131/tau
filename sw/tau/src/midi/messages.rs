@@ -4,26 +4,48 @@ use crate::config::MIDI_VELOCITY;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum MidiEvent {
-    NoteOn(u8),
-    NoteOff(u8),
-    ControlChange(u8, u8),
+    NoteOn { channel: u8, note: u8, velocity: u8 },
+    NoteOff { channel: u8, note: u8 },
+    ControlChange { channel: u8, cc: u8, value: u8 },
 }
 
 impl MidiEvent {
-    pub async fn to_usb_packet(self) -> [u8; 4] {
-        let channel = {
-            let mut state = STATE.lock().await;
-            state.channel()
-        };
-
-        let ch = channel as u8 & 0x0f;
-
+    pub fn to_usb_packet(self) -> [u8; 4] {
         match self {
-            MidiEvent::NoteOn(note) => [0x09, 0x90 | ch, note, MIDI_VELOCITY],
+            MidiEvent::NoteOn {
+                channel,
+                note,
+                velocity,
+            } => [0x09, 0x90 | (channel & 0x0f), note, velocity],
 
-            MidiEvent::NoteOff(note) => [0x08, 0x80 | ch, note, 0],
+            MidiEvent::NoteOff { channel, note } => [0x08, 0x80 | (channel & 0x0f), note, 0],
 
-            MidiEvent::ControlChange(cc, value) => [0x0B, 0xB0 | ch, cc, value],
+            MidiEvent::ControlChange { channel, cc, value } => {
+                [0x0B, 0xB0 | (channel & 0x0f), cc, value]
+            }
+        }
+    }
+
+    pub fn note_on(channel: usize, note: u8) -> Self {
+        Self::NoteOn {
+            channel: channel as u8,
+            note,
+            velocity: MIDI_VELOCITY,
+        }
+    }
+
+    pub fn note_off(channel: usize, note: u8) -> Self {
+        Self::NoteOff {
+            channel: channel as u8,
+            note,
+        }
+    }
+
+    pub fn control_change(channel: usize, cc: u8, value: u8) -> Self {
+        Self::ControlChange {
+            channel: channel as u8,
+            cc,
+            value,
         }
     }
 }

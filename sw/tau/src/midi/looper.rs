@@ -214,7 +214,9 @@ impl Looper {
     }
 
     fn send_all_notes_off(&self) {
-        send_usb_event(MidiEvent::ControlChange(123, 0));
+        for channel in 0..4 {
+            send_usb_event(MidiEvent::control_change(channel, 123, 0));
+        }
     }
 }
 

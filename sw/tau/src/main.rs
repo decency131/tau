@@ -90,7 +90,9 @@ async fn main(spawner: Spawner) {
         state.channel()
     };
     spawner.spawn(blink(board.user_led)).unwrap();
-    spawner.spawn(board::aux_task(switches, ch_leds)).unwrap();
+    spawner
+        .spawn(board::aux_task(switches, exp, adc, ch_leds))
+        .unwrap();
     spawner.spawn(looper_task()).unwrap();
 
     spawner.spawn(pitch_task(midi_enable)).unwrap();
@@ -148,10 +150,8 @@ async fn main(spawner: Spawner) {
     );
 
     let mut midi_class = MidiClass::new(&mut builder, 1, 1, 64);
-    //info!("before usb builder");
     let mut usb = builder.build();
 
     info!("USB MIDI ready; waiting for host");
-    //info!("before usb run");
     join(usb.run(), usb_midi_task(&mut midi_class)).await;
 }
