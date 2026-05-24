@@ -19,9 +19,8 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::adc::Adc;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
-use embassy_stm32::rcc::mux::Adcsel;
 use embassy_stm32::usb::{Config, Driver};
-use embassy_stm32::{gpio::*, interrupt};
+use embassy_stm32::interrupt;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::Timer;
 use embassy_usb::Builder;
@@ -32,6 +31,7 @@ use {defmt_rtt as _, panic_probe as _};
 use crate::audio::input::{AUDIO_EXECUTOR, audio_task};
 use crate::config::{USB_MANUFACTURER, USB_PID, USB_PRODUCT, USB_SERIAL, USB_VID};
 use crate::dsp::pitch::pitch_task;
+use crate::midi::looper::looper_task;
 use crate::midi::usb::usb_midi_task;
 
 static STATE: Mutex<CriticalSectionRawMutex, board::State> = Mutex::new(board::State::new());
@@ -71,25 +71,28 @@ async fn main(spawner: Spawner) {
     let p = hal::init(rcc_config);
     let board = new_daisy_board!(p);
 
-    let mut ch_leds = board::ChLeds::new(
-        board.pins.d10,
-        board.pins.d11,
-        board.pins.d12,
+    let ch_leds = board::ChLeds::new(
         board.pins.d13,
+        board.pins.d12,
+        board.pins.d11,
+        board.pins.d10,
     );
 
     let midi_enable = board::MIDIEnable::new(board.pins.d14);
 
-    let mut adc = Adc::new(p.ADC1);
-    let mut exp = board::AUX2::new(board.pins.d15);
+    let adc = Adc::new(p.ADC1);
+    let exp = board::AUX2::new(board.pins.d15);
 
-    let mut switches = board::AUX1::new(board.pins.d20, board.pins.d21);
-    let channel = {
-        let mut state = STATE.lock().await;
+    let switches = board::AUX1::new(board.pins.d20, board.pins.d21);
+    let _channel = {
+        let state = STATE.lock().await;
         state.channel()
     };
     spawner.spawn(blink(board.user_led)).unwrap();
-    spawner.spawn(board::aux_task(switches, ch_leds)).unwrap();
+    spawner
+        .spawn(board::aux_task(switches, exp, adc, ch_leds))
+        .unwrap();
+    spawner.spawn(looper_task()).unwrap();
 
     spawner.spawn(pitch_task(midi_enable)).unwrap();
 
@@ -146,10 +149,8 @@ async fn main(spawner: Spawner) {
     );
 
     let mut midi_class = MidiClass::new(&mut builder, 1, 1, 64);
-    //info!("before usb builder");
     let mut usb = builder.build();
 
     info!("USB MIDI ready; waiting for host");
-    //info!("before usb run");
     join(usb.run(), usb_midi_task(&mut midi_class)).await;
 }

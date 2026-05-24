@@ -6,20 +6,27 @@ use embassy_usb::driver::EndpointError;
 
 use crate::midi::MidiEvent;
 
-pub static MIDI_CH: Channel<CriticalSectionRawMutex, MidiEvent, 8> = Channel::new();
+pub static MIDI_IN_CH: Channel<CriticalSectionRawMutex, MidiEvent, 16> = Channel::new();
+pub static MIDI_OUT_CH: Channel<CriticalSectionRawMutex, MidiEvent, 16> = Channel::new();
 
 pub fn queue_midi_event(event: MidiEvent) {
-    if MIDI_CH.try_send(event).is_err() {
-        defmt::warn!("midi event queue full; dropping event");
+    if MIDI_IN_CH.try_send(event).is_err() {
+        defmt::warn!("midi input queue full; dropping event");
     }
 }
 
-pub fn send_note_on(note: u8) {
-    queue_midi_event(MidiEvent::NoteOn(note));
+pub fn send_usb_event(event: MidiEvent) {
+    if MIDI_OUT_CH.try_send(event).is_err() {
+        defmt::warn!("midi usb queue full; dropping event");
+    }
 }
 
-pub fn send_note_off(note: u8) {
-    queue_midi_event(MidiEvent::NoteOff(note));
+pub fn send_note_on(channel: usize, note: u8) {
+    queue_midi_event(MidiEvent::note_on(channel, note));
+}
+
+pub fn send_note_off(channel: usize, note: u8) {
+    queue_midi_event(MidiEvent::note_off(channel, note));
 }
 
 pub struct Disconnected {}
@@ -37,8 +44,8 @@ async fn midi_event_loop<'d, T: Instance + 'd>(
     class: &mut MidiClass<'d, Driver<'d, T>>,
 ) -> Result<(), Disconnected> {
     loop {
-        let event = MIDI_CH.receive().await;
-        let packet = event.to_usb_packet().await;
+        let event = MIDI_OUT_CH.receive().await;
+        let packet = event.to_usb_packet();
         class.write_packet(&packet).await?;
     }
 }

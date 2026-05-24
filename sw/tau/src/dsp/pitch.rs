@@ -1,6 +1,7 @@
 use crate::board::MIDIEnable;
+use crate::dsp::smoothing::NoteSmoother;
 
-use defmt::{debug, info};
+use defmt::{debug, info, warn};
 use yin_no_std::Yin;
 
 use crate::audio::input::FRAME_CH;
@@ -12,9 +13,16 @@ use crate::config::{
 use crate::midi::usb::{send_note_off, send_note_on};
 use crate::utils::{pitch_hz_to_midi_note, u24_to_f32};
 
+#[derive(Clone, Copy)]
+struct ActiveNote {
+    note: u8,
+    channel: usize,
+}
+
 #[embassy_executor::task]
 pub async fn pitch_task(midi_enable: MIDIEnable) {
     let yin = Yin::new(SAMPLE_RATE, THRESHOLD, MIN_PROBABILITY);
+    let mut note_smoother = NoteSmoother::new();
 
     let mut frame = [0.0f32; FRAME_LEN];
     let mut diff = [0.0f32; TAU_MAX + 1];
@@ -23,18 +31,27 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
     let mut analyzed_frames = 0u32;
     let mut last_pitch_hz = 0.0f32;
     let mut last_probability = 0.0f32;
-    let mut active_note: Option<u8> = None;
+    let mut active_note: Option<ActiveNote> = None;
     let mut missed_detections = 0u8;
 
     let mut midi_switch_was_enabled = midi_enable.is_enabled();
 
     loop {
+        let current_channel = {
+            let state = crate::STATE.lock().await;
+            state.channel()
+        };
+
         let midi_enabled = midi_enable.is_enabled();
 
         if midi_switch_was_enabled && !midi_enabled {
-            if let Some(note) = active_note.take() {
-                send_note_off(note);
-                info!("midi note_off={} reason=midi_disabled", note);
+            if let Some(active) = active_note.take() {
+                send_note_off(active.channel, active.note);
+                warn!(
+                    "midi note_off={} channel={} reason=midi_disabled",
+                    active.note,
+                    active.channel + 1
+                );
             }
             missed_detections = 0;
         } else if !midi_switch_was_enabled && midi_enabled {
@@ -94,13 +111,19 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
         }
 
         if mean_square < MIN_RMS_SQUARED || peak < MIN_PEAK {
+            note_smoother.reset();
+
             last_pitch_hz = 0.0;
             last_probability = 0.0;
             missed_detections = 0;
 
-            if let Some(note) = active_note.take() {
-                send_note_off(note);
-                info!("midi note_off={} reason=silence", note);
+            if let Some(active) = active_note.take() {
+                send_note_off(active.channel, active.note);
+                info!(
+                    "midi note_off={} channel={} reason=silence",
+                    active.note,
+                    active.channel + 1
+                );
             }
 
             if analyzed_frames % SILENCE_PRINT_EVERY_N_FRAMES == 1 {
@@ -110,16 +133,24 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
             continue;
         }
 
-        if (analyzed_frames % DETECT_EVERY_N_FRAMES == 0) && midi_enabled {
+        if analyzed_frames.is_multiple_of(DETECT_EVERY_N_FRAMES)
+        /* && midi_enabled*/
+        {
             let detected_note = match yin.detect(&frame, TAU_MAX, &mut diff, &mut cmnd) {
                 Some(pitch) => {
                     last_pitch_hz = pitch.frequency_hz;
                     last_probability = pitch.probability;
-                    pitch_hz_to_midi_note(pitch.frequency_hz)
+
+                    let raw_note = pitch_hz_to_midi_note(pitch.frequency_hz);
+                    note_smoother.update(raw_note)
                 }
+
                 None => {
+                    //note_smoother.reset();
+
                     last_pitch_hz = 0.0;
                     last_probability = 0.0;
+
                     None
                 }
             };
@@ -128,19 +159,34 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
                 Some(note) => {
                     missed_detections = 0;
 
-                    if active_note != Some(note) {
-                        if let Some(old_note) = active_note {
-                            send_note_off(old_note);
-                            info!("midi note_off={} reason=changed", old_note);
+                    let needs_new_note = match active_note {
+                        Some(active) => active.note != note || active.channel != current_channel,
+                        None => true,
+                    };
+
+                    if needs_new_note {
+                        if let Some(old) = active_note.take() {
+                            send_note_off(old.channel, old.note);
+                            info!(
+                                "midi note_off={} channel={} reason=changed",
+                                old.note,
+                                old.channel + 1
+                            );
                         }
 
-                        send_note_on(note);
+                        send_note_on(current_channel, note);
                         info!(
-                            "midi note_on={} pitch_hz={} probability={}",
-                            note, last_pitch_hz, last_probability
+                            "midi note_on={} channel={} pitch_hz={} probability={}",
+                            note,
+                            current_channel + 1,
+                            last_pitch_hz,
+                            last_probability
                         );
 
-                        active_note = Some(note);
+                        active_note = Some(ActiveNote {
+                            note,
+                            channel: current_channel,
+                        });
                     }
                 }
                 None => {
@@ -148,19 +194,24 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
                         missed_detections = missed_detections.saturating_add(1);
 
                         if missed_detections >= NOTE_OFF_AFTER_MISSES {
-                            if let Some(note) = active_note.take() {
-                                send_note_off(note);
-                                info!("midi note_off={} reason=lost_pitch", note);
+                            if let Some(active) = active_note.take() {
+                                send_note_off(active.channel, active.note);
+                                info!(
+                                    "midi note_off={} channel={} reason=lost_pitch",
+                                    active.note,
+                                    active.channel + 1
+                                );
                             }
 
                             missed_detections = 0;
                         }
                     }
+                    note_smoother.reset();
                 }
             }
         }
 
-        if analyzed_frames % PRINT_EVERY_N_FRAMES == 0 {
+        if analyzed_frames.is_multiple_of(PRINT_EVERY_N_FRAMES) {
             info!(
                 "pitch_hz={} probability={} rms={} peak={}",
                 last_pitch_hz, last_probability, rms, peak
