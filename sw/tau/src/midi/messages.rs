@@ -1,4 +1,3 @@
-use crate::STATE;
 
 use crate::config::MIDI_VELOCITY;
 

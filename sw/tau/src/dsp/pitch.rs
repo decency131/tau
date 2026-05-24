@@ -1,7 +1,7 @@
 use crate::board::MIDIEnable;
 use crate::dsp::smoothing::NoteSmoother;
 
-use defmt::{debug, info};
+use defmt::{debug, info, warn};
 use yin_no_std::Yin;
 
 use crate::audio::input::FRAME_CH;
@@ -47,7 +47,7 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
         if midi_switch_was_enabled && !midi_enabled {
             if let Some(active) = active_note.take() {
                 send_note_off(active.channel, active.note);
-                info!(
+                warn!(
                     "midi note_off={} channel={} reason=midi_disabled",
                     active.note,
                     active.channel + 1
@@ -133,7 +133,7 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
             continue;
         }
 
-        if (analyzed_frames % DETECT_EVERY_N_FRAMES == 0)
+        if analyzed_frames.is_multiple_of(DETECT_EVERY_N_FRAMES)
         /* && midi_enabled*/
         {
             let detected_note = match yin.detect(&frame, TAU_MAX, &mut diff, &mut cmnd) {
@@ -211,7 +211,7 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
             }
         }
 
-        if analyzed_frames % PRINT_EVERY_N_FRAMES == 0 {
+        if analyzed_frames.is_multiple_of(PRINT_EVERY_N_FRAMES) {
             info!(
                 "pitch_hz={} probability={} rms={} peak={}",
                 last_pitch_hz, last_probability, rms, peak

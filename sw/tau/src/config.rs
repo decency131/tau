@@ -1,15 +1,15 @@
 // Audio / DSP
 pub const SAMPLE_RATE: f32 = 48_000.0;
-pub const FRAME_LEN: usize = 512;
+pub const FRAME_LEN: usize = 1500;
 
-pub const HOP_LEN: usize = 256;
+pub const HOP_LEN: usize = 750;
 
-pub const CONFIRMATIONS: u8 = 2;
+pub const CONFIRMATIONS: u8 = 3;
 
 // YIN
 pub const THRESHOLD: f32 = 0.20;
 pub const MIN_PROBABILITY: f32 = 0.05;
-pub const TAU_MAX: usize = 500;
+pub const TAU_MAX: usize = 1200;
 
 // Throttling
 pub const DETECT_EVERY_N_FRAMES: u32 = 2;
@@ -21,9 +21,9 @@ pub const INPUT_STRIDE: usize = 2;
 pub const INPUT_OFFSET: usize = 0;
 
 // Noise gate
-pub const MIN_RMS: f32 = 0.002;
+pub const MIN_RMS: f32 = 0.004;
 pub const MIN_RMS_SQUARED: f32 = MIN_RMS * MIN_RMS;
-pub const MIN_PEAK: f32 = 0.004;
+pub const MIN_PEAK: f32 = 0.012;
 
 // MIDI
 pub const MIDI_VELOCITY: u8 = 100;

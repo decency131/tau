@@ -5,8 +5,8 @@ use crate::midi::looper::{LooperControl, queue_looper_control};
 use daisy_embassy::pins::*;
 use defmt::info;
 use embassy_stm32::Peripheral;
-use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
-use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
+use embassy_stm32::adc::{Adc, AdcChannel};
+use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::peripherals::ADC1;
 use embassy_time::{Instant, Timer};
 
@@ -66,14 +66,6 @@ impl State {
         Self { midi_channel: 0 }
     }
 
-    pub fn prev_channel(&mut self) {
-        self.midi_channel = (self.midi_channel + 3) % 4;
-    }
-
-    pub fn next_channel(&mut self) {
-        self.midi_channel = (self.midi_channel + 1) % 4;
-    }
-
     pub fn set_channel(&mut self, channel: usize) {
         self.midi_channel = channel % 4;
     }
@@ -103,20 +95,6 @@ impl AUX1 {
 
     pub fn sw2_pressed(&self) -> bool {
         self.sw2.is_low()
-    }
-
-    pub fn sw1_just_pressed(&mut self) -> bool {
-        let pressed = self.sw1_pressed();
-        let just_pressed = pressed && !self.sw1_was_pressed;
-        self.sw1_was_pressed = pressed;
-        just_pressed
-    }
-
-    pub fn sw2_just_pressed(&mut self) -> bool {
-        let pressed = self.sw2_pressed();
-        let just_pressed = pressed && !self.sw2_was_pressed;
-        self.sw2_was_pressed = pressed;
-        just_pressed
     }
 
     pub fn poll_event(&mut self) -> Option<SwitchEvent> {
@@ -156,10 +134,6 @@ where
 
     pub fn read_raw(&mut self, adc: &mut Adc<'static, ADC1>) -> u16 {
         adc.blocking_read(&mut self.pin_adc)
-    }
-
-    pub fn read_f32(&mut self, adc: &mut Adc<'static, ADC1>) -> f32 {
-        self.read_raw(adc) as f32 / 65535.0
     }
 }
 
