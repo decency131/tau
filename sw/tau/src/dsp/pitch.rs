@@ -133,8 +133,7 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
             continue;
         }
 
-        if analyzed_frames.is_multiple_of(DETECT_EVERY_N_FRAMES)
-        /* && midi_enabled*/
+        if analyzed_frames.is_multiple_of(DETECT_EVERY_N_FRAMES) && midi_enabled
         {
             let detected_note = match yin.detect(&frame, TAU_MAX, &mut diff, &mut cmnd) {
                 Some(pitch) => {
@@ -146,8 +145,6 @@ pub async fn pitch_task(midi_enable: MIDIEnable) {
                 }
 
                 None => {
-                    //note_smoother.reset();
-
                     last_pitch_hz = 0.0;
                     last_probability = 0.0;
 
